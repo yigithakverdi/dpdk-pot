@@ -30,62 +30,62 @@ void remove_headers(struct rte_mbuf *pkt) {
   struct ipv6_srh *srh = (struct ipv6_srh *)(ipv6_hdr + 1);
   struct hmac_tlv *hmac = (struct hmac_tlv *)(srh + 1);
   struct pot_tlv *pot = (struct pot_tlv *)(hmac + 1);
-  uint8_t *payload = (uint8_t *)(pot + 1);
 
-  // Restore the original next header (e.g., UDP for iperf)
-  ipv6_hdr->proto = 17;  // UDP
+  // Find the actual UDP payload (after all headers)
+  uint8_t *actual_payload = (uint8_t *)(pot + 1);
 
-  printf("packet length: %u\n", rte_pktmbuf_pkt_len(pkt));
-  // size_t payload_size = rte_pktmbuf_pkt_len(pkt) -
-  //                       (54 + sizeof(struct ipv6_srh) + sizeof(struct hmac_tlv) + sizeof(struct pot_tlv));
-  // printf("Payload size: %lu\n", payload_size);
-  size_t headers_size = 54 + sizeof(struct ipv6_srh) + sizeof(struct hmac_tlv) + sizeof(struct pot_tlv);
-  size_t payload_size = rte_pktmbuf_pkt_len(pkt) - headers_size;
-  printf("Total packet length: %u\n", rte_pktmbuf_pkt_len(pkt));
-  printf("Headers size: %lu\n", headers_size);
-  printf("Calculated payload size: %lu\n", payload_size);
+  // Calculate headers sizes more precisely
+  size_t eth_ipv6_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr);
+  size_t srh_size = sizeof(struct ipv6_srh);
+  size_t hmac_size = sizeof(struct hmac_tlv);
+  size_t pot_size = sizeof(struct pot_tlv);
+  size_t all_headers_size = eth_ipv6_size + srh_size + hmac_size + pot_size;
 
-  uint8_t *tmp_payload = (uint8_t *)malloc(payload_size);
-  if (tmp_payload == NULL) {
+  // Calculate the actual payload size
+  size_t actual_payload_size = rte_pktmbuf_pkt_len(pkt) - all_headers_size;
+  printf("Actual UDP payload size: %lu bytes\n", actual_payload_size);
+
+  // Save the actual payload
+  uint8_t *tmp_payload = malloc(actual_payload_size);
+  if (!tmp_payload) {
     printf("malloc failed\n");
     return;
   }
-  memcpy(tmp_payload, payload, payload_size);
+  memcpy(tmp_payload, actual_payload, actual_payload_size);
 
-  // // Remove headers from the tail
-  // rte_pktmbuf_trim(pkt, payload_size);
-  // rte_pktmbuf_trim(pkt, sizeof(struct pot_tlv));
-  rte_pktmbuf_trim(pkt, sizeof(struct hmac_tlv));
-  rte_pktmbuf_trim(pkt, sizeof(struct ipv6_srh));
+  // Trim all headers except Ethernet and IPv6
+  rte_pktmbuf_trim(pkt, rte_pktmbuf_pkt_len(pkt) - eth_ipv6_size);
 
-  // Set the destination IPv6 address to the iperf server's address
+  // Get IPv6 header again after trimming
+  eth_hdr_6 = rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *);
+  ipv6_hdr = (struct rte_ipv6_hdr *)(eth_hdr_6 + 1);
+
+  // Update IPv6 header
+  ipv6_hdr->proto = IPPROTO_UDP;
+
+  // Set destination to iperf server
   struct in6_addr iperf_server_ipv6;
   if (inet_pton(AF_INET6, "2a05:d014:dc7:12c2:724:c0e1:c16d:2f16", &iperf_server_ipv6) != 1) {
     printf("Error converting IPv6 address\n");
     free(tmp_payload);
     return;
   }
-  // Get the IPv6 header again since we've modified the packet
-  eth_hdr_6 = rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *);
-  ipv6_hdr = (struct rte_ipv6_hdr *)(eth_hdr_6 + 1);
   memcpy(&ipv6_hdr->dst_addr, &iperf_server_ipv6, sizeof(struct in6_addr));
 
-  // Add this block to fix UDP length:
-  if (ipv6_hdr->proto == IPPROTO_UDP) {
-    struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ipv6_hdr + 1);
-    // Set UDP length to match actual payload size
-    udp_hdr->dgram_len = rte_cpu_to_be_16(payload_size);
-    // Zero out checksum to bypass validation
-    udp_hdr->dgram_cksum = 0;
-  }
+  // Add UDP header
+  struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)rte_pktmbuf_append(pkt, sizeof(struct rte_udp_hdr));
+  udp_hdr->src_port = rte_cpu_to_be_16(15618);  // Use consistent port from original
+  udp_hdr->dst_port = rte_cpu_to_be_16(5201);   // Standard iperf port
+  udp_hdr->dgram_len = rte_cpu_to_be_16(sizeof(struct rte_udp_hdr) + actual_payload_size);
+  udp_hdr->dgram_cksum = 0;
 
-  // Update IPv6 payload length to match the real payload size
-  ipv6_hdr->payload_len = rte_cpu_to_be_16(payload_size);
-
-  // Continue with appending the payload
-  payload = (uint8_t *)rte_pktmbuf_append(pkt, payload_size);
-  memcpy(payload, tmp_payload, payload_size);
+  // Append the saved payload
+  uint8_t *new_payload = rte_pktmbuf_append(pkt, actual_payload_size);
+  memcpy(new_payload, tmp_payload, actual_payload_size);
   free(tmp_payload);
+
+  // Update IPv6 length
+  ipv6_hdr->payload_len = rte_cpu_to_be_16(sizeof(struct rte_udp_hdr) + actual_payload_size);
 }
 
 // Functions appends an SRH structure immidiately after the IPv6 header in the packet.
