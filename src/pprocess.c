@@ -70,6 +70,18 @@ void remove_headers(struct rte_mbuf *pkt) {
   ipv6_hdr = (struct rte_ipv6_hdr *)(eth_hdr_6 + 1);
   memcpy(&ipv6_hdr->dst_addr, &iperf_server_ipv6, sizeof(struct in6_addr));
 
+  // Add this block to fix UDP length:
+  if (ipv6_hdr->proto == IPPROTO_UDP) {
+    struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ipv6_hdr + 1);
+    // Set UDP length to match actual payload size
+    udp_hdr->dgram_len = rte_cpu_to_be_16(payload_size);
+    // Zero out checksum to bypass validation
+    udp_hdr->dgram_cksum = 0;
+  }
+
+  // Update IPv6 payload length to match the real payload size
+  ipv6_hdr->payload_len = rte_cpu_to_be_16(payload_size);
+
   // Continue with appending the payload
   payload = (uint8_t *)rte_pktmbuf_append(pkt, payload_size);
   memcpy(payload, tmp_payload, payload_size);
