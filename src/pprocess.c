@@ -60,6 +60,14 @@ void remove_headers(struct rte_mbuf *pkt) {
 
   // Calculate the actual payload size
   size_t actual_payload_size = rte_pktmbuf_pkt_len(pkt) - all_headers_size;
+
+  // Skip inner UDP header (8 bytes) if present
+  if (actual_payload_size >= 8) {
+    actual_payload += 8;
+    actual_payload_size -= 8;
+    printf("Skipping 8 bytes of inner UDP header in payload\n");
+  }
+
   printf("Actual UDP payload size: %lu bytes\n", actual_payload_size);
 
   // Save the actual payload
