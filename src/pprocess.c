@@ -36,9 +36,14 @@ void remove_headers(struct rte_mbuf *pkt) {
   ipv6_hdr->proto = 17;  // UDP
 
   printf("packet length: %u\n", rte_pktmbuf_pkt_len(pkt));
-  size_t payload_size = rte_pktmbuf_pkt_len(pkt) -
-                        (54 + sizeof(struct ipv6_srh) + sizeof(struct hmac_tlv) + sizeof(struct pot_tlv));
-  printf("Payload size: %lu\n", payload_size);
+  // size_t payload_size = rte_pktmbuf_pkt_len(pkt) -
+  //                       (54 + sizeof(struct ipv6_srh) + sizeof(struct hmac_tlv) + sizeof(struct pot_tlv));
+  // printf("Payload size: %lu\n", payload_size);
+  size_t headers_size = 54 + sizeof(struct ipv6_srh) + sizeof(struct hmac_tlv) + sizeof(struct pot_tlv);
+  size_t payload_size = rte_pktmbuf_pkt_len(pkt) - headers_size;
+  printf("Total packet length: %u\n", rte_pktmbuf_pkt_len(pkt));
+  printf("Headers size: %lu\n", headers_size);
+  printf("Calculated payload size: %lu\n", payload_size);
 
   uint8_t *tmp_payload = (uint8_t *)malloc(payload_size);
   if (tmp_payload == NULL) {
@@ -47,9 +52,9 @@ void remove_headers(struct rte_mbuf *pkt) {
   }
   memcpy(tmp_payload, payload, payload_size);
 
-  // Remove headers from the tail
-  rte_pktmbuf_trim(pkt, payload_size);
-  rte_pktmbuf_trim(pkt, sizeof(struct pot_tlv));
+  // // Remove headers from the tail
+  // rte_pktmbuf_trim(pkt, payload_size);
+  // rte_pktmbuf_trim(pkt, sizeof(struct pot_tlv));
   rte_pktmbuf_trim(pkt, sizeof(struct hmac_tlv));
   rte_pktmbuf_trim(pkt, sizeof(struct ipv6_srh));
 
@@ -345,7 +350,7 @@ static inline void process_ingress_packet(struct rte_mbuf *mbuf, uint16_t rx_por
           //   printf("Failed to read HMAC key for %s\n", dst_ip_str);
           //   break;
           // }
-          uint8_t *k_hmac_ie = k_pot_in[0]; // egress key
+          uint8_t *k_hmac_ie = k_pot_in[0];  // egress key
           size_t key_len = HMAC_MAX_LENGTH;
 
           // Compute HMAC
@@ -775,7 +780,7 @@ static inline void process_egress_packet(struct rte_mbuf *mbuf) {
             //   rte_pktmbuf_free(mbuf);
             //   return;
             // }
-            uint8_t *k_hmac_ie = k_pot_in[0]; // egress key
+            uint8_t *k_hmac_ie = k_pot_in[0];  // egress key
 
             // Log HMAC input values for debugging
             printf("[EGRESS] HMAC input values:\n");
@@ -819,9 +824,63 @@ static inline void process_egress_packet(struct rte_mbuf *mbuf) {
 
             // Remove headers and forward to iperf server (replace MAC/port as needed)
             remove_headers(mbuf);
+
+            // After modifying headers but before sending:
+            struct rte_ether_hdr *eth_hdr_final = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
+            struct rte_ipv6_hdr *ipv6_hdr_final = (struct rte_ipv6_hdr *)(eth_hdr_final + 1);
+            // Detailed UDP header verification before sending
+            if (ipv6_hdr_final->proto == IPPROTO_UDP) {
+              struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ipv6_hdr_final + 1);
+
+              // Print detailed information about the UDP header
+              printf("\n[EGRESS] UDP HEADER VERIFICATION\n");
+              printf("UDP Source Port: %u\n", rte_be_to_cpu_16(udp_hdr->src_port));
+              printf("UDP Destination Port: %u\n", rte_be_to_cpu_16(udp_hdr->dst_port));
+              printf("UDP Length: %u\n", rte_be_to_cpu_16(udp_hdr->dgram_len));
+              printf("UDP Checksum (before zeroing): 0x%04x\n", rte_be_to_cpu_16(udp_hdr->dgram_cksum));
+
+              // Check UDP payload size matches declared length
+              uint16_t expected_udp_len = rte_be_to_cpu_16(udp_hdr->dgram_len);
+              uint16_t ipv6_payload_len = rte_be_to_cpu_16(ipv6_hdr_final->payload_len);
+
+              printf("IPv6 Payload Length: %u\n", ipv6_payload_len);
+              printf("Expected UDP Length (from header): %u\n", expected_udp_len);
+
+              if (ipv6_payload_len != expected_udp_len) {
+                printf("WARNING: IPv6 payload length (%u) doesn't match UDP length (%u)\n", ipv6_payload_len,
+                       expected_udp_len);
+              } else {
+                printf("IPv6 payload length matches UDP length\n");
+              }
+
+              // Dump the UDP payload (first few bytes)
+              uint8_t *udp_payload = (uint8_t *)(udp_hdr + 1);
+              size_t payload_dump_len = 32;  // Show first 32 bytes of payload
+              size_t max_dump_len =
+                  rte_pktmbuf_pkt_len(mbuf) - ((uint8_t *)udp_payload - rte_pktmbuf_mtod(mbuf, uint8_t *));
+
+              if (payload_dump_len > max_dump_len) {
+                payload_dump_len = max_dump_len;
+              }
+
+              printf("UDP Payload (first %zu bytes):\n", payload_dump_len);
+              hex_dump(udp_payload, payload_dump_len);
+
+              // Zero out UDP checksum to bypass validation
+              udp_hdr->dgram_cksum = 0;
+              printf("UDP Checksum zeroed for delivery\n");
+            } else {
+              printf("[EGRESS] WARNING: Expected UDP protocol (17) but got protocol %u\n",
+                     ipv6_hdr_final->proto);
+            }
+
             // struct rte_ether_addr iperf_mac = {{0x08, 0x00, 0x27, 0x7D, 0xDD, 0x01}};
-            struct rte_ether_addr iperf_mac = {{0x02, 0x38, 0x81, 0xe2, 0xf9, 0xa7}}; // Updated to your iperf server MAC
-            // send_packet_to(iperf_mac, mbuf, /*tx_port_id*/ 1);
+            struct rte_ether_addr iperf_mac = {
+                {0x02, 0x38, 0x81, 0xe2, 0xf9, 0xa7}};  // Updated to your iperf server MAC
+                                                        // send_packet_to(iperf_mac, mbuf, /*tx_port_id*/ 1);
+            printf("[EGRESS] Sending packet to iperf server MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                   iperf_mac.addr_bytes[0], iperf_mac.addr_bytes[1], iperf_mac.addr_bytes[2],
+                   iperf_mac.addr_bytes[3], iperf_mac.addr_bytes[4], iperf_mac.addr_bytes[5]);
             send_packet_to(iperf_mac, mbuf, 0);
             printf("[EGRESS] Packet hex dump AFTER send (first 64 bytes):\n");
             dump_len = rte_pktmbuf_pkt_len(mbuf);
