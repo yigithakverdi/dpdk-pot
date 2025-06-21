@@ -30,9 +30,26 @@ void remove_headers(struct rte_mbuf *pkt) {
   struct ipv6_srh *srh = (struct ipv6_srh *)(ipv6_hdr + 1);
   struct hmac_tlv *hmac = (struct hmac_tlv *)(srh + 1);
   struct pot_tlv *pot = (struct pot_tlv *)(hmac + 1);
-
+  
   // Find the actual UDP payload (after all headers)
   uint8_t *actual_payload = (uint8_t *)(pot + 1);
+
+  // Add detailed packet layout analysis for debugging
+  printf("PACKET LAYOUT ANALYSIS:\n");
+  printf("Total packet length: %u\n", rte_pktmbuf_pkt_len(pkt));
+  printf("Ethernet header: %lu bytes\n", sizeof(struct rte_ether_hdr));
+  printf("IPv6 header: %lu bytes\n", sizeof(struct rte_ipv6_hdr));
+  printf("SRH header: %lu bytes\n", sizeof(struct ipv6_srh));
+  printf("HMAC TLV: %lu bytes\n", sizeof(struct hmac_tlv));
+  printf("POT TLV: %lu bytes\n", sizeof(struct pot_tlv));
+  
+  // Examine what's after POT
+  uint8_t *ptr_after_pot = (uint8_t *)(pot + 1);
+  printf("First 16 bytes after POT (actual payload): ");
+  for (int i = 0; i < 16 && i < (rte_pktmbuf_pkt_len(pkt) - (ptr_after_pot - rte_pktmbuf_mtod(pkt, uint8_t *))); i++) {
+    printf("%02x ", ptr_after_pot[i]);
+  }
+  printf("\n");
 
   // Calculate headers sizes more precisely
   size_t eth_ipv6_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv6_hdr);
@@ -52,6 +69,13 @@ void remove_headers(struct rte_mbuf *pkt) {
     return;
   }
   memcpy(tmp_payload, actual_payload, actual_payload_size);
+
+  // Dump the first few bytes of the actual payload
+  printf("First %lu bytes of actual payload: ", (actual_payload_size > 16) ? 16 : actual_payload_size);
+  for (size_t i = 0; i < 16 && i < actual_payload_size; i++) {
+    printf("%02x ", tmp_payload[i]);
+  }
+  printf("\n");
 
   // Trim all headers except Ethernet and IPv6
   rte_pktmbuf_trim(pkt, rte_pktmbuf_pkt_len(pkt) - eth_ipv6_size);
@@ -80,12 +104,17 @@ void remove_headers(struct rte_mbuf *pkt) {
   udp_hdr->dgram_cksum = 0;
 
   // Append the saved payload
-  uint8_t *new_payload = rte_pktmbuf_append(pkt, actual_payload_size);
+  void *new_payload = rte_pktmbuf_append(pkt, actual_payload_size);
   memcpy(new_payload, tmp_payload, actual_payload_size);
   free(tmp_payload);
 
   // Update IPv6 length
   ipv6_hdr->payload_len = rte_cpu_to_be_16(sizeof(struct rte_udp_hdr) + actual_payload_size);
+  
+  // Calculate the UDP checksum correctly
+  udp_hdr->dgram_cksum = rte_ipv6_udptcp_cksum(ipv6_hdr, udp_hdr);
+  
+  printf("UDP checksum calculated: 0x%04x\n", rte_be_to_cpu_16(udp_hdr->dgram_cksum));
 }
 
 // Functions appends an SRH structure immidiately after the IPv6 header in the packet.
@@ -849,7 +878,7 @@ static inline void process_egress_packet(struct rte_mbuf *mbuf) {
               printf("UDP Source Port: %u\n", rte_be_to_cpu_16(udp_hdr->src_port));
               printf("UDP Destination Port: %u\n", rte_be_to_cpu_16(udp_hdr->dst_port));
               printf("UDP Length: %u\n", rte_be_to_cpu_16(udp_hdr->dgram_len));
-              printf("UDP Checksum (before zeroing): 0x%04x\n", rte_be_to_cpu_16(udp_hdr->dgram_cksum));
+              printf("UDP Checksum: 0x%04x\n", rte_be_to_cpu_16(udp_hdr->dgram_cksum));
 
               // Check UDP payload size matches declared length
               uint16_t expected_udp_len = rte_be_to_cpu_16(udp_hdr->dgram_len);
@@ -878,9 +907,8 @@ static inline void process_egress_packet(struct rte_mbuf *mbuf) {
               printf("UDP Payload (first %zu bytes):\n", payload_dump_len);
               hex_dump(udp_payload, payload_dump_len);
 
-              // Zero out UDP checksum to bypass validation
-              udp_hdr->dgram_cksum = 0;
-              printf("UDP Checksum zeroed for delivery\n");
+              // No need to zero out the checksum, we've properly calculated it in remove_headers
+              printf("UDP Checksum properly calculated and ready for delivery\n");
             } else {
               printf("[EGRESS] WARNING: Expected UDP protocol (17) but got protocol %u\n",
                      ipv6_hdr_final->proto);
