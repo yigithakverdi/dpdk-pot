@@ -149,7 +149,6 @@ launch_container() {
         --name="$name" \
         --hostname="$name" \
         --privileged \
-        --cpuset-cpus="$lcore" \
         --network=none \
         --cap-add=NET_ADMIN \
         --cap-add=SYS_ADMIN \
