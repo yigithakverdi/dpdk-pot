@@ -74,11 +74,11 @@ int main(int argc, char *argv[]) {
   uint16_t rx_port = 0;
   uint16_t tx_port = 1;
 
-  setup_port(rx_port, mbuf_pool, 1);
+  setup_port(rx_port, mbuf_pool, 0);
 
   if (global_role == ROLE_TRANSIT) {
     printf("Setting up second port %u for transit role\n", tx_port);
-    setup_port(tx_port, mbuf_pool, 0);
+    setup_port(tx_port, mbuf_pool, 1);
   }
 
   printf("TSC frequency: %" PRIu64 " Hz\n", rte_get_tsc_hz());
