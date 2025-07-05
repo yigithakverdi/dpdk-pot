@@ -151,12 +151,15 @@ launch_container() {
         --privileged \
         --cpuset-cpus="$lcore" \
         --network=none \
+        --cap-add=NET_ADMIN \
+        --cap-add=SYS_ADMIN \
         --entrypoint sleep \
         -v /dev/hugepages:/dev/hugepages \
         -v /dev/vfio:/dev/vfio \
         -v /sys/bus/pci/devices:/sys/bus/pci/devices \
         -v /sys/kernel/mm/hugepages:/sys/kernel/mm/hugepages \
         -v /sys/devices/system/node:/sys/devices/system/node \
+        -v /lib/modules:/lib/modules \
         -v "$GEN_KEYS_FILE":/etc/dpdk-pot/keys.txt \
         -v "$SEGMENT_LIST_FILE":/etc/dpdk-pot/segment_list.txt \
         "$IMAGE_NAME" \
