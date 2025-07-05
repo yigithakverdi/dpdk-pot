@@ -4,7 +4,7 @@
 set -e
 
 # --- Configuration ---
-IMAGE_NAME="yigithak/dpdk-pot:0.0.1"  # Your DPDK image
+IMAGE_NAME="yigithak/dpdk-pot:latest"  # Your DPDK image
 NUM_TRANSIT_NODES=${1:-5}  # Default to 5 transit nodes, take from first argument
 NODE_PREFIX="pot-node"     # Common prefix for all nodes
 INGRESS_NODE="${NODE_PREFIX}-ingress"  # Ingress node name
@@ -145,24 +145,24 @@ launch_container() {
     local lcore=$((START_LCORE + index % $(nproc)))
     
     info "Launching container: $name (using core $lcore)" >&2
-    sudo docker run -d \
-        --name="$name" \
-        --hostname="$name" \
-        --privileged \
-        --network=none \
-        --cap-add=NET_ADMIN \
-        --cap-add=SYS_ADMIN \
-        --entrypoint sleep \
-        -v /dev/hugepages:/dev/hugepages \
-        -v /dev/vfio:/dev/vfio \
-        -v /sys/bus/pci/devices:/sys/bus/pci/devices \
-        -v /sys/kernel/mm/hugepages:/sys/kernel/mm/hugepages \
-        -v /sys/devices/system/node:/sys/devices/system/node \
-        -v /lib/modules:/lib/modules \
-        -v "$GEN_KEYS_FILE":/etc/dpdk-pot/keys.txt \
-        -v "$SEGMENT_LIST_FILE":/etc/dpdk-pot/segment_list.txt \
-        "$IMAGE_NAME" \
-        infinity >/dev/null
+        sudo docker run -d \
+            --name="$name" \
+            --hostname="$name" \
+            --privileged \
+            --network=none \
+            --cap-add=NET_ADMIN \
+            --cap-add=SYS_ADMIN \
+            --entrypoint sleep \
+            -v /dev/hugepages:/dev/hugepages \
+            -v /dev/vfio:/dev/vfio \
+            -v /sys/bus/pci/devices:/sys/bus/pci/devices \
+            -v /sys/kernel/mm/hugepages:/sys/kernel/mm/hugepages \
+            -v /sys/devices/system/node:/sys/devices/system/node \
+            -v /lib/modules:/lib/modules \
+            -v "$GEN_KEYS_FILE":/etc/dpdk-pot/keys.txt \
+            -v "$SEGMENT_LIST_FILE":/etc/dpdk-pot/segment_list.txt \
+            "$IMAGE_NAME" \
+            infinity >/dev/null
 
     sleep 1
     
