@@ -4,7 +4,7 @@
 set -e
 
 # --- Configuration ---
-DPDK_VERSION="24.03"
+DPDK_VERSION="23.11"
 DPDK_TARBALL="dpdk-${DPDK_VERSION}.tar.gz"
 DPDK_URL="https://fast.dpdk.org/rel/${DPDK_TARBALL}"
 DPDK_SRC_DIR="dpdk-${DPDK_VERSION}"

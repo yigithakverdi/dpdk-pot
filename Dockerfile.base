@@ -2,7 +2,7 @@
 # Stage 1: Builder
 FROM ubuntu:24.04 AS builder
 
-ARG DPDK_VERSION=24.03
+ARG DPDK_VERSION=23.11
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install base build dependencies for DPDK
