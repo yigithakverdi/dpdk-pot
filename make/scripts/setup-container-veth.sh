@@ -4,7 +4,7 @@
 set -e
 
 # --- Configuration ---
-IMAGE_NAME="dpdk-base:ubuntu24.04-24.03.1"  # Your DPDK image
+IMAGE_NAME="yigithak/dpdk-pot:0.0.1"  # Your DPDK image
 NUM_TRANSIT_NODES=${1:-5}  # Default to 5 transit nodes, take from first argument
 NODE_PREFIX="pot-node"     # Common prefix for all nodes
 INGRESS_NODE="${NODE_PREFIX}-ingress"  # Ingress node name
